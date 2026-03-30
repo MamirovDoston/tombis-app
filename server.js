@@ -17,40 +17,55 @@ app.post('/api/scrape-tombis', async (req, res) => {
 
   let browser;
   try {
+    console.log('[PUPPETEER] Launching browser in headless mode...');
     browser = await puppeteer.launch({
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
+    console.log('[PUPPETEER] Browser launched successfully');
 
     const page = await browser.newPage();
+    console.log('[PUPPETEER] New page created');
     
     // Set viewport for consistent rendering
     await page.setViewport({ width: 1280, height: 800 });
+    console.log('[PUPPETEER] Viewport set to 1280x800');
 
-    // Navigate to TÖMBİS login page (placeholder URL - update with actual URL)
-    await page.goto('https://tombis.example.edu/login', { 
+    // Navigate to TÖMBİS login page - Sakarya University
+    console.log('[NAVIGATE] Going to Sakarya University TÖMBİS login page...');
+    await page.goto('https://tombis.sakarya.edu.tr/Identity/Account/Login', { 
       waitUntil: 'networkidle0',
       timeout: 30000 
     });
+    console.log(`[NAVIGATE] Login page loaded. Current URL: ${page.url()}`);
 
     // Fill in login credentials
+    console.log('[LOGIN] Entering username...');
     await page.type('input[name="username"], #username, input[type="text"]', username, { delay: 50 });
+    console.log('[LOGIN] Entering password...');
     await page.type('input[name="password"], #password, input[type="password"]', password, { delay: 50 });
+    console.log('[LOGIN] Credentials entered, clicking login button...');
 
     // Click login button
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }),
       page.click('button[type="submit"], input[type="submit"], .login-btn')
     ]);
+    console.log(`[LOGIN] Navigation complete. Current URL: ${page.url()}`);
 
     // Check if login was successful (check for error message or redirect)
+    console.log('[LOGIN] Checking for login errors...');
     const errorMessage = await page.$eval('.error-message, .alert-danger', el => el.textContent).catch(() => null);
     if (errorMessage) {
+      console.log(`[LOGIN ERROR] Login failed: ${errorMessage}`);
       await browser.close();
+      console.log('[PUPPETEER] Browser closed');
       return res.status(401).json({ error: 'Invalid credentials', message: errorMessage });
     }
+    console.log('[LOGIN] Login successful!');
 
     // Scrape Profile Info
+    console.log('[SCRAPE] Scraping profile information...');
     const profileData = await page.evaluate(() => {
       // Common selectors for student profile information
       const name = document.querySelector('.student-name, .user-name, h1.profile-name, .fullname')?.textContent?.trim() || '';
@@ -62,11 +77,15 @@ app.post('/api/scrape-tombis', async (req, res) => {
       
       return { name, studentId, faculty, program, email, phone };
     });
+    console.log(`[SCRAPE] Profile scraped: ${JSON.stringify(profileData)}`);
 
-    // Navigate to Schedule page
-    await page.goto('https://tombis.example.edu/schedule', { waitUntil: 'networkidle0', timeout: 30000 });
+    // Navigate to Schedule page - Sakarya University (hardcoded class ID 1781)
+    console.log('[NAVIGATE] Going to schedule page...');
+    await page.goto('https://tombis.sakarya.edu.tr/Class/Home/1781', { waitUntil: 'networkidle0', timeout: 30000 });
+    console.log(`[NAVIGATE] Schedule page loaded. URL: ${page.url()}`);
     
     // Scrape Schedule
+    console.log('[SCRAPE] Scraping schedule data...');
     const scheduleData = await page.evaluate(() => {
       const rows = document.querySelectorAll('table.schedule-table tr, .schedule-row, .lesson-row');
       const schedule = [];
@@ -84,11 +103,15 @@ app.post('/api/scrape-tombis', async (req, res) => {
       });
       return schedule;
     });
+    console.log(`[SCRAPE] Found ${scheduleData.length} schedule items`);
 
-    // Navigate to Attendance page
-    await page.goto('https://tombis.example.edu/attendance', { waitUntil: 'networkidle0', timeout: 30000 });
+    // Navigate to Attendance page - Sakarya University (hardcoded class ID 1781)
+    console.log('[NAVIGATE] Going to attendance page...');
+    await page.goto('https://tombis.sakarya.edu.tr/Class/Attendance/Student/1781', { waitUntil: 'networkidle0', timeout: 30000 });
+    console.log(`[NAVIGATE] Attendance page loaded. URL: ${page.url()}`);
     
     // Scrape Attendance
+    console.log('[SCRAPE] Scraping attendance data...');
     const attendanceData = await page.evaluate(() => {
       const rows = document.querySelectorAll('table.attendance-table tr, .attendance-row');
       const attendance = [];
@@ -106,11 +129,15 @@ app.post('/api/scrape-tombis', async (req, res) => {
       });
       return attendance;
     });
+    console.log(`[SCRAPE] Found ${attendanceData.length} attendance items`);
 
-    // Navigate to Payments page
-    await page.goto('https://tombis.example.edu/payments', { waitUntil: 'networkidle0', timeout: 30000 });
+    // Navigate to Payments page - Sakarya University
+    console.log('[NAVIGATE] Going to payments page...');
+    await page.goto('https://tombis.sakarya.edu.tr/Payment/Index', { waitUntil: 'networkidle0', timeout: 30000 });
+    console.log(`[NAVIGATE] Payments page loaded. URL: ${page.url()}`);
     
     // Scrape Payments
+    console.log('[SCRAPE] Scraping payments data...');
     const paymentsData = await page.evaluate(() => {
       const rows = document.querySelectorAll('table.payment-table tr, .payment-row');
       const payments = [];
@@ -128,6 +155,7 @@ app.post('/api/scrape-tombis', async (req, res) => {
       });
       return payments;
     });
+    console.log(`[SCRAPE] Found ${paymentsData.length} payment items`);
 
     // Return all scraped data
     const result = {
@@ -139,49 +167,30 @@ app.post('/api/scrape-tombis', async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
+    console.log('[SUCCESS] All data scraped successfully!');
+    console.log(`[SUMMARY] Profile: ${profileData.name || 'N/A'}, Schedule: ${scheduleData.length} items, Attendance: ${attendanceData.length} items, Payments: ${paymentsData.length} items`);
+
     await browser.close();
+    console.log('[PUPPETEER] Browser closed, sending response');
+    
     res.json(result);
 
   } catch (error) {
-    if (browser) await browser.close();
-    console.error('Scraping error:', error);
+    if (browser) {
+      await browser.close();
+      console.log('[PUPPETEER] Browser closed due to error');
+    }
     
-    // Return demo data for development/testing when scraping fails
-    // REMOVE THIS IN PRODUCTION
-    const demoData = {
-      success: true,
-      demo: true,
-      profile: {
-        name: 'Ahmet Yılmaz',
-        studentId: '202301001',
-        faculty: 'Faculty of Engineering',
-        program: 'Computer Science',
-        email: 'ahmet.yilmaz@university.edu',
-        phone: '+90 555 123 4567'
-      },
-      schedule: [
-        { day: 'Monday', time: '09:00 - 11:00', course: 'Data Structures', room: 'Lab 101', instructor: 'Dr. Smith' },
-        { day: 'Monday', time: '13:00 - 15:00', course: 'Algorithms', room: 'Room 302', instructor: 'Prof. Johnson' },
-        { day: 'Tuesday', time: '10:00 - 12:00', course: 'Database Systems', room: 'Lab 205', instructor: 'Dr. Brown' },
-        { day: 'Wednesday', time: '09:00 - 11:00', course: 'Web Development', room: 'Lab 103', instructor: 'Prof. Davis' },
-        { day: 'Thursday', time: '14:00 - 16:00', course: 'Machine Learning', room: 'Room 401', instructor: 'Dr. Wilson' }
-      ],
-      attendance: [
-        { course: 'Data Structures', totalHours: '48', attended: '45', absent: '3', percentage: '93.75%' },
-        { course: 'Algorithms', totalHours: '48', attended: '42', absent: '6', percentage: '87.50%' },
-        { course: 'Database Systems', totalHours: '48', attended: '46', absent: '2', percentage: '95.83%' },
-        { course: 'Web Development', totalHours: '48', attended: '44', absent: '4', percentage: '91.67%' },
-        { course: 'Machine Learning', totalHours: '48', attended: '40', absent: '8', percentage: '83.33%' }
-      ],
-      payments: [
-        { semester: 'Fall 2024', description: 'Tuition Fee', amount: '15,000 TL', status: 'Paid', dueDate: '2024-10-01' },
-        { semester: 'Fall 2024', description: 'Library Fee', amount: '200 TL', status: 'Paid', dueDate: '2024-10-01' },
-        { semester: 'Spring 2025', description: 'Tuition Fee', amount: '15,000 TL', status: 'Pending', dueDate: '2025-02-01' }
-      ],
+    console.error('[ERROR] Scraping failed:', error.message);
+    console.error('[ERROR] Stack trace:', error.stack);
+    
+    // Return actual error - NO MOCK DATA FALLBACK
+    res.status(500).json({
+      error: 'Failed to scrape data from TÖMBİS',
+      message: error.message,
+      details: 'The scraping process encountered an error. Please check: 1) Your credentials are correct, 2) The TÖMBİS portal is accessible, 3) The portal structure matches expected selectors.',
       timestamp: new Date().toISOString()
-    };
-    
-    res.json(demoData);
+    });
   }
 });
 
